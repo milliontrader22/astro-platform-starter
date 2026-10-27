@@ -2624,6 +2624,7 @@ stBias        = input.string('None', 'Bias Filter', options = ['None', '4H EMA',
 stConf        = input.string('SMT', 'Require On C2', options = ['None', 'SMT', 'PSP'], group = grpSt)
 stUseSess     = input.bool(true, 'Session Filter (UTC)', group = grpSt, inline = 'sess')
 stSess        = input.session('0700-2000', '', group = grpSt, inline = 'sess')
+stWeekdays    = input.bool(false, 'Monday-Friday Only (UTC)', group = grpSt, tooltip = 'Backtest: on the default setup this lowers the edge (weekend trades were net winners in 2025-26); it only reduces losses on high-frequency variants.')
 stRisk        = input.float(1.0, 'Risk % Per Trade', minval = 0.1, step = 0.1, group = grpSt)
 stMaxLev      = input.float(10.0, 'Max Leverage', minval = 1, step = 1, group = grpSt)
 stFrom        = input.time(timestamp('2022-01-01T00:00:00'), 'Trade From', group = grpSt)
@@ -2632,6 +2633,8 @@ stEma4h       = request.security(syminfo.tickerid, '240', ta.ema(close, 50)[1], 
 stDayOpen     = request.security(syminfo.tickerid, '1D', open, lookahead = barmerge.lookahead_on)
 
 stInSess      = not stUseSess or not na(time(timeframe.period, stSess, 'UTC'))
+stDow         = dayofweek(time, 'UTC')
+stWeekOk      = not stWeekdays or (stDow != dayofweek.saturday and stDow != dayofweek.sunday)
 
 var float     stPeriodOpen = na
 if periodChanged
@@ -2677,7 +2680,7 @@ stCheck(C2Setup s, float entryPx) =>
     tp   = stTarget(s, entryPx, sl)
     bool ok = risk > 0 and risk / entryPx * 100 >= stMinStop and (tp - entryPx) * d > 0 and (tp - entryPx) * d / risk >= stMinRR
     ok := ok and (stSide == 'Both' or (stSide == 'Long') == s.isBull)
-    ok := ok and stInSess
+    ok := ok and stInSess and stWeekOk
     ok := ok and (stBias != '4H EMA' or (not na(stEma4h) and (close - stEma4h) * d > 0))
     ok := ok and (stBias != 'Daily Open' or (entryPx - stDayOpen) * d < 0)
     bool smt = s.isBull ? stBuySmt : stSellSmt

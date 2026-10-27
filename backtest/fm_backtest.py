@@ -31,6 +31,7 @@ class Params:
     need_psp: bool = False
     min_stop: float = 0.0        # skip trades whose stop is tighter than this fraction of price
     bias: str = "none"           # none | ema (4H EMA50 side) | do (longs below / shorts above the daily open)
+    weekdays_only: bool = False  # enter only Monday-Friday (UTC)
 
 
 FEE_TAKER = 0.0005  # Binance USDT-M futures; spot is 0.001 (0.00075 with BNB)
@@ -38,7 +39,7 @@ FEE_MAKER = 0.0002
 MAX_HOLD = 12 * 24  # bars: hard time stop (1 day on 5m)
 
 
-def sim_setup(s, p: Params, O, H, L, C, hours, ema, dopen):
+def sim_setup(s, p: Params, O, H, L, C, hours, ema, dopen, wday):
     if p.side == "long" and not s.is_bull or p.side == "short" and s.is_bull:
         return None
     if p.need_smt and not s.smt or p.need_psp and not s.psp:
@@ -95,6 +96,8 @@ def sim_setup(s, p: Params, O, H, L, C, hours, ema, dopen):
         if entry_bar is None:
             return None
 
+    if p.weekdays_only and wday[entry_bar] >= 5:
+        return None
     if p.sess and hours[entry_bar] not in p.sess:
         return None
     if p.bias == "ema" and ((C[entry_bar - 1] - ema[entry_bar]) * d <= 0 or np.isnan(ema[entry_bar])):
@@ -140,11 +143,11 @@ def sim_setup(s, p: Params, O, H, L, C, hours, ema, dopen):
 
 
 def run(setups, p: Params, arrs, risk=0.01, max_lev=10.0):
-    O, H, L, C, hours, ema, dopen = arrs
+    O, H, L, C, hours, ema, dopen, wday = arrs
     trades = []
     busy_until = -1
     for s in sorted(setups, key=lambda s: s.create_bar):
-        t = sim_setup(s, p, O, H, L, C, hours, ema, dopen)
+        t = sim_setup(s, p, O, H, L, C, hours, ema, dopen, wday)
         if t is None or t["entry_bar"] <= busy_until:
             continue
         trades.append(t)
@@ -186,7 +189,7 @@ def arrays(df):
     day = t // (24 * 3600 * 1000)
     dopen = df["open"].groupby(day).transform("first").to_numpy()
     return (df["open"].to_numpy(), df["high"].to_numpy(), df["low"].to_numpy(), c.to_numpy(),
-            df["dt"].dt.hour.to_numpy(), ema, dopen)
+            df["dt"].dt.hour.to_numpy(), ema, dopen, df["dt"].dt.weekday.to_numpy())
 
 
 if __name__ == "__main__":
