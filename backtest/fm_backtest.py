@@ -29,13 +29,16 @@ class Params:
     sess: tuple = ()             # allowed entry hours UTC (empty = all)
     need_smt: bool = False
     need_psp: bool = False
+    min_stop: float = 0.0        # skip trades whose stop is tighter than this fraction of price
+    bias: str = "none"           # none | ema (4H EMA50 side) | do (longs below / shorts above the daily open)
 
 
-FEE = 0.0005      # 0.05% per side (taker); change to 0.001 for spot without BNB discount
+FEE_TAKER = 0.0005  # Binance USDT-M futures; spot is 0.001 (0.00075 with BNB)
+FEE_MAKER = 0.0002
 MAX_HOLD = 12 * 24  # bars: hard time stop (1 day on 5m)
 
 
-def sim_setup(s, p: Params, O, H, L, C, hours):
+def sim_setup(s, p: Params, O, H, L, C, hours, ema, dopen):
     if p.side == "long" and not s.is_bull or p.side == "short" and s.is_bull:
         return None
     if p.need_smt and not s.smt or p.need_psp and not s.psp:
@@ -94,9 +97,13 @@ def sim_setup(s, p: Params, O, H, L, C, hours):
 
     if p.sess and hours[entry_bar] not in p.sess:
         return None
+    if p.bias == "ema" and ((C[entry_bar - 1] - ema[entry_bar]) * d <= 0 or np.isnan(ema[entry_bar])):
+        return None
+    if p.bias == "do" and (entry_px - dopen[entry_bar]) * d >= 0:
+        return None
     sl = s.extreme * (1 - d * p.sl_buf)
     risk = (entry_px - sl) * d
-    if risk <= 0:
+    if risk <= 0 or risk / entry_px < p.min_stop:
         return None
     if p.tp_mode == "dev":
         rng = (s.cisd_level - s.extreme) * d
@@ -125,17 +132,19 @@ def sim_setup(s, p: Params, O, H, L, C, hours):
         j = min(n - 1, entry_bar + MAX_HOLD - 1)
         exit_bar, exit_px = j, C[j]
     gross_r = (exit_px - entry_px) * d / risk
-    fee_r = FEE * (entry_px + exit_px) / risk
+    fee_in = FEE_TAKER if p.entry == "cisd" else FEE_MAKER
+    fee_out = FEE_MAKER if reason == "tp" else FEE_TAKER
+    fee_r = (fee_in * entry_px + fee_out * exit_px) / risk
     return dict(bull=s.is_bull, entry_bar=entry_bar, exit_bar=exit_bar, entry=entry_px, exit=exit_px,
                 sl=sl, tp=tp, r=gross_r - fee_r, stop_pct=risk / entry_px, reason=reason)
 
 
 def run(setups, p: Params, arrs, risk=0.01, max_lev=10.0):
-    O, H, L, C, hours = arrs
+    O, H, L, C, hours, ema, dopen = arrs
     trades = []
     busy_until = -1
     for s in sorted(setups, key=lambda s: s.create_bar):
-        t = sim_setup(s, p, O, H, L, C, hours)
+        t = sim_setup(s, p, O, H, L, C, hours, ema, dopen)
         if t is None or t["entry_bar"] <= busy_until:
             continue
         trades.append(t)
@@ -167,8 +176,17 @@ def sweep(setups, arrs, grid: dict, base=Params(), min_trades=30):
 
 
 def arrays(df):
-    return (df["open"].to_numpy(), df["high"].to_numpy(), df["low"].to_numpy(), df["close"].to_numpy(),
-            df["dt"].dt.hour.to_numpy())
+    t = df["time"].to_numpy(dtype="int64")
+    c = df["close"]
+    # 4H EMA50 from closed 4H candles only, forward-filled onto 5m bars (no lookahead)
+    h4 = t // (240 * 60 * 1000)
+    h4_close = c.groupby(h4).last()
+    h4_ema = h4_close.ewm(span=50, adjust=False).mean().shift(1)
+    ema = h4_ema.reindex(h4).to_numpy()
+    day = t // (24 * 3600 * 1000)
+    dopen = df["open"].groupby(day).transform("first").to_numpy()
+    return (df["open"].to_numpy(), df["high"].to_numpy(), df["low"].to_numpy(), c.to_numpy(),
+            df["dt"].dt.hour.to_numpy(), ema, dopen)
 
 
 if __name__ == "__main__":

@@ -79,6 +79,14 @@ def main():
         except Exception as e:  # noqa: BLE001
             print("skip", mo, e)
     df = pd.concat(parts)
+    # current month: daily archives (api.binance.com may be geo-blocked)
+    last = pd.to_datetime(df["time"].max(), unit="ms") + pd.Timedelta(days=1)
+    for day in pd.date_range(last.normalize(), pd.Timestamp.utcnow().tz_localize(None).normalize()):
+        url = f"https://data.binance.vision/data/spot/daily/klines/{symbol}/{interval}/{symbol}-{interval}-{day:%Y-%m-%d}.zip"
+        try:
+            df = pd.concat([df, to_df(get(url, tries=1))])
+        except Exception:  # noqa: BLE001
+            pass
     try:
         df = pd.concat([df, recent(symbol, interval, int(df["time"].max()) + 1)])
     except Exception as e:  # noqa: BLE001
