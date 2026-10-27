@@ -408,6 +408,12 @@ f_smt_pair_registry(string _ticker) =>
     else if str.contains(_ticker, "RTY")
         p := "ES1!"
 
+    // Crypto spot / perps (e.g. BINANCE:BTCUSDT, BTCUSDT.P): pair on the same exchange and quote
+    else if str.startswith(_ticker, "BTC") and str.contains(_ticker, "USD")
+        p := syminfo.prefix + ":ETH" + str.substring(_ticker, 3)
+    else if str.startswith(_ticker, "ETH") and str.contains(_ticker, "USD")
+        p := syminfo.prefix + ":BTC" + str.substring(_ticker, 3)
+
     // Crypto futures
     else if str.contains(_ticker, "BTC")
         p := "ETH1!"
