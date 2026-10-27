@@ -1,0 +1,3 @@
+data/
+sweep_*.csv
+__pycache__/
