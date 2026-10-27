@@ -20,11 +20,12 @@ class Params:
     tspot_need_cisd: bool = True
     max_stage: int = 3           # last candle (C3..C6) an entry may trigger in
     sl_buf: float = 0.0          # fraction beyond the C2 extreme
-    tp_mode: str = "dev"         # dev | r
+    tp_mode: str = "dev"         # dev | r | c2 (C2 opposite extreme) | c1 (C1 opposite extreme)
     tp: float = 2.0              # |std dev| or R multiple
     min_rr: float = 0.0
     exit_invalid: bool = True    # close on XC4/5/6
     exit_finish: bool = False    # close when the setup's last candle ends
+    be_r: float = 0.0            # move the stop to entry once price reaches this many R (0 = off)
     side: str = "both"           # both | long | short
     sess: tuple = ()             # allowed entry hours UTC (empty = all)
     need_smt: bool = False
@@ -111,6 +112,10 @@ def sim_setup(s, p: Params, O, H, L, C, hours, ema, dopen, wday):
     if p.tp_mode == "dev":
         rng = (s.cisd_level - s.extreme) * d
         tp = s.cisd_level + d * rng * p.tp
+    elif p.tp_mode == "c2":
+        tp = s.c2_high if s.is_bull else s.c2_low
+    elif p.tp_mode == "c1":
+        tp = s.c1["h"] if s.is_bull else s.c1["l"]
     else:
         tp = entry_px + d * risk * p.tp
     if (tp - entry_px) * d <= 0 or (tp - entry_px) * d / risk < p.min_rr:
@@ -123,6 +128,8 @@ def sim_setup(s, p: Params, O, H, L, C, hours, ema, dopen, wday):
         o = O[j]
         if j > entry_bar and ((o <= sl) if s.is_bull else (o >= sl)):
             exit_bar, exit_px, reason = j, o, "sl"; break
+        if p.be_r and (sl - entry_px) * d < 0 and j > entry_bar and ((H[j - 1] - entry_px) if s.is_bull else (entry_px - L[j - 1])) >= p.be_r * risk:
+            sl = entry_px
         if (L[j] <= sl) if s.is_bull else (H[j] >= sl):
             exit_bar, exit_px, reason = j, sl, "sl"; break
         if (H[j] >= tp) if s.is_bull else (L[j] <= tp):

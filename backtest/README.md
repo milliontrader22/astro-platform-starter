@@ -25,3 +25,16 @@ fees 0.02% maker (limit entries, targets) / 0.05% taker (market, stops) — Bina
   With the daily-open filter: 93 trades, +0.33R, PF 1.52.
 * Caveats: few trades (~35/yr), most profit from 2022, a cliff between 0.3% and 0.4% min stop,
   and **spot fees (0.1%) turn it negative** (-0.06R). Treat as a candidate for forward testing.
+
+## Round 2: frequency, features, other coins (`fees.py`, `features.py`, `multi_asset.py`, `weekdays.py`)
+
+* **No gross edge at high frequency.** Trading every setup (7-8/day, concurrent positions) gives
+  +0.007R/trade with **zero fees**, -0.33R with standard futures fees. Entry type, C1/C2 targets
+  and break-even at 1R do not change this.
+* Features (zero-fee R, IS vs OOS): only trend alignment (4H EMA, +0.04/+0.07R) and SMT
+  (+0.005/+0.11R) help in both periods. Sweep depth, C2 close location, C2/C1 range, volume,
+  hour, weekday: no consistent effect.
+* Monday-Friday only: lowers the edge of the selective variant; only trims losses on frequent ones.
+* **Other coins (same rules, no per-coin tuning):** the BTC variant loses on ETH (-0.17R),
+  SOL (-0.21R), AVAX, LINK, XRP; ~0 on BNB, DOGE, ADA. 9-coin portfolio: 2.5 trades/day,
+  -0.08R/trade; C3-C4 variant 4.6/day, -0.06R. The BTC result is most likely noise.

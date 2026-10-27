@@ -34,6 +34,8 @@ class Setup:
     finish_bar: int = -1
     replaced_bar: int = -1
     smt: bool = False
+    c1: dict = None            # C1 HTF candle (o, h, l, c, v)
+    c2: dict = None            # C2 HTF candle
     psp: bool = False
 
     @property
@@ -53,7 +55,7 @@ def htf_id(df: pd.DataFrame, htf_minutes: int) -> np.ndarray:
 
 
 def generate(df: pd.DataFrame, htf_minutes=60, max_candle=6, pair: pd.DataFrame | None = None):
-    O = df["open"].to_numpy(); H = df["high"].to_numpy(); L = df["low"].to_numpy(); C = df["close"].to_numpy()
+    O = df["open"].to_numpy(); H = df["high"].to_numpy(); L = df["low"].to_numpy(); C = df["close"].to_numpy(); V = df["volume"].to_numpy()
     n = len(df)
     hid = htf_id(df, htf_minutes)
     up = C > O; dw = C < O; eq = C == O
@@ -137,9 +139,9 @@ def generate(df: pd.DataFrame, htf_minutes=60, max_candle=6, pair: pd.DataFrame 
         if pc:
             if cur is not None:
                 candles.append(cur)
-            cur = dict(o=O[i], h=H[i], l=L[i], c=C[i], hid=hid[i])
+            cur = dict(o=O[i], h=H[i], l=L[i], c=C[i], v=V[i], hid=hid[i])
         else:
-            cur["h"] = max(cur["h"], H[i]); cur["l"] = min(cur["l"], L[i]); cur["c"] = C[i]
+            cur["h"] = max(cur["h"], H[i]); cur["l"] = min(cur["l"], L[i]); cur["c"] = C[i]; cur["v"] += V[i]
 
         trig_buy = trig_sell = False
         if pc and len(candles) >= 2:
@@ -157,6 +159,7 @@ def generate(df: pd.DataFrame, htf_minutes=60, max_candle=6, pair: pd.DataFrame 
                 p = "bull" if is_bull else "bear"
                 s = Setup(is_bull, i, c2["l"] if is_bull else c2["h"], c2["h"], c2["l"],
                           prev[p + "_lvl"], prev[p + "_idx"])
+                s.c1, s.c2 = dict(c1), dict(c2)
                 top, bot = box(c2)
                 s.stages[3] = (i, top, bot)
                 if prev[p + "_rec"] and not np.isnan(prev[p + "_lvl"]) and prev[p + "_idx"] >= 0 and prev[p + "_rec_bar"] >= 0:
