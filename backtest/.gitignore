@@ -1,3 +1,4 @@
 data/
 sweep_*.csv
 __pycache__/
+ladder_*.csv
