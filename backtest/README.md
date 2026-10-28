@@ -66,3 +66,16 @@ Weekdays only, New York-time windows, news filter (no entries 08:25-09:00 and 13
 * Caveats: narrow peak — changing entry, stage, window, target 1R or forcing flat at session end
   takes it to ~0; 36% of trades exit on the 24h time stop (not really scalping). Not statistically
   significant; forward-test only.
+
+## Round 5: scale-in / martingale (`ladder.py`)
+
+2-3 entries at fractions of the original risk r0 (LTF C2 extreme), final stop up to 3*r0, sizes
+equal (1-1-1), mild (1-1.5-2) or martingale (1-2-4), target from E1 or from the average price.
+R normalised by total risk (all entries filled and stopped = -1R). 11,520 variants each on 5m and 1m.
+
+* **No variant is positive in both 2022-24 and 2025-26** (0 of 4,808 daily 5m variants, 0 of 9,274 daily 1m).
+* Wider ladders raise the win rate (L3c: 72-74% average, up to 93%) and shrink losses because
+  fees are a smaller share of a wider stop, but stay negative: best 1m daily variant (15m-4H
+  context, T-Spot Edge C3, NY, L3c martingale, TP E1+0.5r0) is 0.9 trades/weekday, 86% win,
+  -0.011R/trade; 1 of 5 years positive.
+* Martingale vs equal sizing changes little; it raises the win rate slightly and deepens the losers.
