@@ -51,3 +51,18 @@ HTF setup (15m-4H or 1H-1D, CISD confirmed and still alive) gives direction; LTF
 * **1m execution (2020 variants, 75,623 1m-15m setups):** 1.3 trades/day loses -0.06R (HTF stop
   keeps fees small, but there is no gross edge); best low-frequency variants ~+0.02R. 1.2% of
   variants positive in both IS and OOS.
+
+## Round 4: daily scalping, BTC only (`scalp.py`, `scalp_detail.py`)
+
+Weekdays only, New York-time windows, news filter (no entries 08:25-09:00 and 13:55-14:30 ET;
+"strict" also skips FOMC days and NFP Fridays), optional flat-at-window-end, optional HTF context.
+
+* **5m execution:** 689 variants trade >= 0.7 per weekday; **none** is positive in both 2022-24 and 2025-26.
+* **1m execution:** 1545 daily variants, 8 positive in both periods. Best (picked on 2022-24 only):
+  15m-4H context alive, 1m-15m T-Spot Edge in C3, stop at the 4H C2 extreme, target 1.5R,
+  NY 09:30-16:00 ET, news blackout. 893 trades, 0.71/weekday (62% of weekdays), +0.049R/trade,
+  IS +0.051 / OOS +0.047; by year R: 2022 +28.1, 2023 -7.8, 2024 +8.1, 2025 +2.5, 2026 +12.6;
+  +47% at 1% risk, max DD 19.7%.
+* Caveats: narrow peak — changing entry, stage, window, target 1R or forcing flat at session end
+  takes it to ~0; 36% of trades exit on the 24h time stop (not really scalping). Not statistically
+  significant; forward-test only.
