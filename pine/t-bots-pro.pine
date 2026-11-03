@@ -2,41 +2,48 @@
 indicator("T-BOTS PRO", overlay=true, max_bars_back=5000, max_boxes_count=500, max_lines_count=500, max_labels_count=500)
 
 // ============================================================================
+// AJUSTES
+// ============================================================================
+tenkan_length        = input.int(9,  title="Longitud Tenkan-sen",            group="Ichimoku / EMA")
+kijun_length         = input.int(26, title="Longitud Kijun-sen",             group="Ichimoku / EMA")
+senkou_span_b_length = input.int(52, title="Longitud Senkou Span B",         group="Ichimoku / EMA")
+displacement         = input.int(26, title="Desplazamiento de la nube",      group="Ichimoku / EMA")
+longEMA_length       = input.int(26, title="Longitud EMA Larga",             group="Ichimoku / EMA")
+
+tp_pct               = input.float(2.0, title="Take-Profit (%)", minval=0.1, step=0.1, group="Zonas Long / Short")
+sl_pct               = input.float(2.0, title="Stop-Loss (%)",   minval=0.1, step=0.1, group="Zonas Long / Short")
+one_trade            = input.bool(true, title="Una zona a la vez (esperar TP o SL)",  group="Zonas Long / Short")
+
+// Filtros anti-ruido
+filter_close         = input.bool(true, title="Cierre a favor de la EMA",                           group="Filtros anti-ruido")
+filter_cloud         = input.bool(true, title="Color de la nube a favor (verde = long, roja = short)", group="Filtros anti-ruido")
+filter_slope         = input.bool(true, title="Pendiente clara de la EMA",                          group="Filtros anti-ruido")
+slope_len            = input.int(5,  title="Barras para medir la pendiente", minval=1,               group="Filtros anti-ruido")
+cooldown             = input.int(15, title="Barras mínimas entre señales",   minval=0,               group="Filtros anti-ruido")
+
+// Qué se dibuja (por defecto solo las zonas)
+show_ema             = input.bool(false, title="Mostrar EMA",          group="Visualización")
+show_cloud           = input.bool(false, title="Mostrar nube Ichimoku", group="Visualización")
+show_table           = input.bool(true,  title="Mostrar panel",         group="Visualización")
+
+// ============================================================================
 // ICHIMOKU + EMA
 // ============================================================================
-tenkan_length        = input.int(9,  title="Longitud Tenkan-sen")
-kijun_length         = input.int(26, title="Longitud Kijun-sen")
-senkou_span_b_length = input.int(52, title="Longitud Senkou Span B")
-displacement         = input.int(26, title="Desplazamiento (nube / Chikou)")
-longEMA_length       = input.int(26, title="Longitud EMA Larga")
-tp_pct               = input.float(2.0, title="Take-Profit (%)", minval=0.1, step=0.1)
-sl_pct               = input.float(2.0, title="Stop-Loss (%)",   minval=0.1, step=0.1)
-
 donchian(len) => (ta.highest(high, len) + ta.lowest(low, len)) / 2
 
 tenkan_sen    = donchian(tenkan_length)
 kijun_sen     = donchian(kijun_length)
-senkou_span_a = (tenkan_sen + kijun_sen) / 2          // Span A estándar
+senkou_span_a = (tenkan_sen + kijun_sen) / 2
 senkou_span_b = donchian(senkou_span_b_length)
+cloud_offset  = displacement - 1          // igual que el Ichimoku de TradingView
+longEMA       = ta.ema(close, longEMA_length)
 
-// Igual que el Ichimoku de TradingView: la nube se desplaza (displacement - 1) barras
-cloud_offset = displacement - 1
+plot(show_ema ? longEMA : na, title="EMA Larga", color=color.orange, linewidth=2)
+p_span_a = plot(show_cloud ? senkou_span_a : na, title="Senkou Span A", color=color.new(color.green, 60),  offset=cloud_offset)
+p_span_b = plot(show_cloud ? senkou_span_b : na, title="Senkou Span B", color=color.new(color.maroon, 60), offset=cloud_offset)
+fill(p_span_a, p_span_b, color=not show_cloud ? na : senkou_span_a > senkou_span_b ? color.new(color.green, 85) : color.new(color.red, 85), title="Nube Ichimoku")
 
-longEMA = ta.ema(close, longEMA_length)
-
-// --- Ploteos ---
-plot(longEMA,    title="EMA Larga",  color=color.orange, linewidth=3)
-plot(tenkan_sen, title="Tenkan-sen", color=color.blue,   linewidth=1)
-plot(kijun_sen,  title="Kijun-sen",  color=color.red,    linewidth=1)
-plot(close,      title="Chikou Span", color=color.new(color.purple, 30), linewidth=1, offset=-cloud_offset)
-p_span_a = plot(senkou_span_a, title="Senkou Span A", color=color.green,  linewidth=1, offset=cloud_offset)
-p_span_b = plot(senkou_span_b, title="Senkou Span B", color=color.maroon, linewidth=1, offset=cloud_offset)
-
-// Nube: verde = alcista (A > B), roja = bajista
-fill(p_span_a, p_span_b, color=senkou_span_a > senkou_span_b ? color.new(color.green, 80) : color.new(color.red, 80), title="Nube Ichimoku")
-
-// --- Detección del toque ---
-// La nube que se ve en la barra actual es la calculada hace 'cloud_offset' barras
+// La nube visible en la barra actual es la calculada hace 'cloud_offset' barras
 cloud_a   = senkou_span_a[cloud_offset]
 cloud_b   = senkou_span_b[cloud_offset]
 cloud_top = math.max(cloud_a, cloud_b)
@@ -46,37 +53,35 @@ ema_touches_cloud = longEMA >= cloud_bot and longEMA <= cloud_top
 new_touch         = ema_touches_cloud and not ema_touches_cloud[1]
 
 // ============================================================================
-// ENTRADAS LONG / SHORT
+// SEÑALES FILTRADAS
 // ============================================================================
-filter_trend = input.bool(true, title="Filtro: cierre a favor de la EMA (long: close > EMA, short: close < EMA)", group="Entradas")
-one_trade    = input.bool(true, title="Una operación a la vez (esperar TP o SL)", group="Entradas")
-show_levels  = input.bool(true, title="Dibujar líneas de Entrada / TP / SL", group="Entradas")
+ema_up   = longEMA > longEMA[slope_len]
+ema_down = longEMA < longEMA[slope_len]
 
-ema_rising = longEMA > longEMA[1]
+var int last_signal_bar = na
+cooldown_ok = na(last_signal_bar) or bar_index - last_signal_bar >= cooldown
 
-// Condiciones de entrada (se confirman al cierre de la vela para no repintar)
-long_cond  = new_touch and ema_rising     and (not filter_trend or close > longEMA)
-short_cond = new_touch and not ema_rising and (not filter_trend or close < longEMA)
+long_cond  = new_touch and cooldown_ok and longEMA > longEMA[1] and (not filter_slope or ema_up)   and (not filter_close or close > longEMA) and (not filter_cloud or cloud_a > cloud_b)
+short_cond = new_touch and cooldown_ok and longEMA < longEMA[1] and (not filter_slope or ema_down) and (not filter_close or close < longEMA) and (not filter_cloud or cloud_a < cloud_b)
 
-var int   pos         = 0      // 1 = long, -1 = short, 0 = sin posición
+// ============================================================================
+// ZONAS LONG / SHORT
+// Cada operación se dibuja como UNA sola caja: de SL a TP, verde (long) o roja (short)
+// ============================================================================
+var int   pos         = 0      // 1 = long, -1 = short, 0 = sin zona activa
 var float entry_price = na
 var float tp_price    = na
 var float sl_price    = na
-var line  ln_entry    = na
-var line  ln_tp       = na
-var line  ln_sl       = na
+var box   zone        = na
 var int   wins        = 0
 var int   losses      = 0
 
-close_levels() =>
-    line.set_x2(ln_entry, bar_index)
-    line.set_x2(ln_tp, bar_index)
-    line.set_x2(ln_sl, bar_index)
-    line.set_extend(ln_entry, extend.none)
-    line.set_extend(ln_tp, extend.none)
-    line.set_extend(ln_sl, extend.none)
+close_zone(string txt) =>
+    box.set_right(zone, bar_index)
+    box.set_extend(zone, extend.none)
+    box.set_text(zone, txt)
 
-// --- Salidas (TP / SL). Si en la misma vela se tocan ambos, se cuenta SL (conservador) ---
+// --- Salida (si una vela toca TP y SL a la vez se cuenta SL, criterio conservador) ---
 bool hit_tp = false
 bool hit_sl = false
 if pos == 1
@@ -87,65 +92,61 @@ else if pos == -1
     hit_tp := not hit_sl and low <= tp_price
 
 if hit_tp or hit_sl
-    label.new(bar_index, hit_tp ? tp_price : sl_price, hit_tp ? "TP ✓" : "SL ✗", style=label.style_label_left, color=hit_tp ? color.green : color.red, textcolor=color.white, size=size.small)
-    close_levels()
+    close_zone((pos == 1 ? "LONG" : "SHORT") + (hit_tp ? " ✓ TP" : " ✗ SL"))
+    if hit_tp
+        box.set_bgcolor(zone, color.new(pos == 1 ? color.green : color.red, 70))
     wins   += hit_tp ? 1 : 0
     losses += hit_sl ? 1 : 0
     pos    := 0
 
-// --- Entradas ---
+// --- Entrada (confirmada al cierre de la vela, no repinta) ---
 can_enter    = not one_trade or pos == 0
 long_signal  = barstate.isconfirmed and long_cond  and can_enter and pos != 1
 short_signal = barstate.isconfirmed and short_cond and can_enter and pos != -1
 
 if long_signal or short_signal
-    if pos != 0                     // señal contraria con "una operación a la vez" desactivado
-        close_levels()
-    pos         := long_signal ? 1 : -1
-    entry_price := close
-    tp_price    := long_signal ? close * (1 + tp_pct / 100) : close * (1 - tp_pct / 100)
-    sl_price    := long_signal ? close * (1 - sl_pct / 100) : close * (1 + sl_pct / 100)
-    txt = (long_signal ? "LONG" : "SHORT") + "\nEntrada: " + str.tostring(entry_price, format.mintick) + "\nTP: " + str.tostring(tp_price, format.mintick) + "\nSL: " + str.tostring(sl_price, format.mintick)
-    label.new(bar_index, long_signal ? low : high, txt, yloc=long_signal ? yloc.belowbar : yloc.abovebar, style=long_signal ? label.style_label_up : label.style_label_down, color=long_signal ? color.green : color.red, textcolor=color.white, size=size.small)
-    if show_levels
-        ln_entry := line.new(bar_index, entry_price, bar_index + 1, entry_price, color=color.gray,  style=line.style_dashed, extend=extend.right)
-        ln_tp    := line.new(bar_index, tp_price,    bar_index + 1, tp_price,    color=color.green, style=line.style_dashed, extend=extend.right)
-        ln_sl    := line.new(bar_index, sl_price,    bar_index + 1, sl_price,    color=color.red,   style=line.style_dashed, extend=extend.right)
-    alert(txt, alert.freq_once_per_bar_close)
+    if pos != 0
+        close_zone((pos == 1 ? "LONG" : "SHORT") + " (cerrada)")
+    pos             := long_signal ? 1 : -1
+    last_signal_bar := bar_index
+    entry_price     := close
+    tp_price        := long_signal ? close * (1 + tp_pct / 100) : close * (1 - tp_pct / 100)
+    sl_price        := long_signal ? close * (1 - sl_pct / 100) : close * (1 + sl_pct / 100)
+    zone_col         = long_signal ? color.green : color.red
+    zone            := box.new(bar_index, math.max(tp_price, sl_price), bar_index + 1, math.min(tp_price, sl_price), border_color=color.new(zone_col, 40), bgcolor=color.new(zone_col, 85), extend=extend.right, text=long_signal ? "LONG" : "SHORT", text_color=zone_col, text_size=size.small, text_halign=text.align_left, text_valign=long_signal ? text.align_bottom : text.align_top)
+    alert((long_signal ? "LONG" : "SHORT") + " " + syminfo.ticker + " | Entrada: " + str.tostring(entry_price, format.mintick) + " | TP: " + str.tostring(tp_price, format.mintick) + " | SL: " + str.tostring(sl_price, format.mintick), alert.freq_once_per_bar_close)
 
-// --- Alertas fijas (para crearlas desde el menú de alertas) ---
-alertcondition(long_signal,  title="T-BOTS: Entrada LONG",  message="T-BOTS PRO: entrada LONG en {{ticker}} a {{close}}")
-alertcondition(short_signal, title="T-BOTS: Entrada SHORT", message="T-BOTS PRO: entrada SHORT en {{ticker}} a {{close}}")
-alertcondition(hit_tp,       title="T-BOTS: Take-Profit",   message="T-BOTS PRO: take-profit alcanzado en {{ticker}}")
-alertcondition(hit_sl,       title="T-BOTS: Stop-Loss",     message="T-BOTS PRO: stop-loss alcanzado en {{ticker}}")
+plotshape(long_signal,  title="Entrada LONG",  style=shape.triangleup,   location=location.belowbar, color=color.green, size=size.tiny)
+plotshape(short_signal, title="Entrada SHORT", style=shape.triangledown, location=location.abovebar, color=color.red,   size=size.tiny)
 
-// --- Tabla (se actualiza solo en la última barra) ---
-var table myTable = table.new(position.middle_left, 1, 7)
-if barstate.islast
-    status_txt = pos == 1 ? "LONG activo" : pos == -1 ? "SHORT activo" : ema_touches_cloud ? "¡Patrón Detectado!" : "Buscando entrada..."
-    status_bg  = pos == 1 ? color.green : pos == -1 ? color.red : ema_touches_cloud ? color.orange : color.gray
-    has_trade  = not na(entry_price)
-    winrate    = wins + losses > 0 ? 100.0 * wins / (wins + losses) : na
-    table.cell(myTable, 0, 0, status_txt, text_color=color.white, bgcolor=status_bg)
-    table.cell(myTable, 0, 1, ema_touches_cloud ? "EMA tocando Tbots Pro" : "Esperando el toque de la EMA", text_color=color.white, bgcolor=color.black)
-    table.cell(myTable, 0, 2, has_trade ? (pos == 0 ? "Última: " : "Dirección: ") + (tp_price > entry_price ? "LONG" : "SHORT") : "", text_color=color.white, bgcolor=color.black)
-    table.cell(myTable, 0, 3, has_trade ? "Entrada: " + str.tostring(entry_price, format.mintick) : "", text_color=color.white, bgcolor=color.black)
-    table.cell(myTable, 0, 4, has_trade ? "Take-Profit: " + str.tostring(tp_price, format.mintick) : "", text_color=color.white, bgcolor=color.black)
-    table.cell(myTable, 0, 5, has_trade ? "Stop-Loss: " + str.tostring(sl_price, format.mintick) : "", text_color=color.white, bgcolor=color.black)
-    table.cell(myTable, 0, 6, "TP: " + str.tostring(wins) + " | SL: " + str.tostring(losses) + (na(winrate) ? "" : " | Acierto: " + str.tostring(winrate, "#.#") + "%"), text_color=color.white, bgcolor=color.black)
+alertcondition(long_signal,  title="T-BOTS: Zona LONG",   message="T-BOTS PRO: zona LONG en {{ticker}} a {{close}}")
+alertcondition(short_signal, title="T-BOTS: Zona SHORT",  message="T-BOTS PRO: zona SHORT en {{ticker}} a {{close}}")
+alertcondition(hit_tp,       title="T-BOTS: Take-Profit", message="T-BOTS PRO: take-profit alcanzado en {{ticker}}")
+alertcondition(hit_sl,       title="T-BOTS: Stop-Loss",   message="T-BOTS PRO: stop-loss alcanzado en {{ticker}}")
+
+// --- Panel ---
+var table myTable = table.new(position.middle_left, 1, 5)
+if barstate.islast and show_table
+    has_trade = not na(entry_price)
+    winrate   = wins + losses > 0 ? 100.0 * wins / (wins + losses) : na
+    table.cell(myTable, 0, 0, pos == 1 ? "ZONA LONG activa" : pos == -1 ? "ZONA SHORT activa" : "Sin zona activa", text_color=color.white, bgcolor=pos == 1 ? color.green : pos == -1 ? color.red : color.gray)
+    table.cell(myTable, 0, 1, has_trade ? (pos == 0 ? "Última entrada: " : "Entrada: ") + str.tostring(entry_price, format.mintick) : "", text_color=color.white, bgcolor=color.black)
+    table.cell(myTable, 0, 2, has_trade ? "Take-Profit: " + str.tostring(tp_price, format.mintick) : "", text_color=color.white, bgcolor=color.black)
+    table.cell(myTable, 0, 3, has_trade ? "Stop-Loss: " + str.tostring(sl_price, format.mintick) : "", text_color=color.white, bgcolor=color.black)
+    table.cell(myTable, 0, 4, "TP: " + str.tostring(wins) + " | SL: " + str.tostring(losses) + (na(winrate) ? "" : " | " + str.tostring(winrate, "#.#") + "%"), text_color=color.white, bgcolor=color.black)
 
 // ============================================================================
-// BLOQUES DE ORDEN - ORDER BLOCKS
+// BLOQUES DE ORDEN - ORDER BLOCKS (desactivados por defecto para reducir ruido)
 // ============================================================================
-string bos_type     = input.string("High and Low", title='MSB trigger', options=["High and Low", "Close and Open"])
-bool pv2_sv         = input.bool(true, title='Display 2nd order pivots')
-bool bos_sv         = input.bool(true, title='Highlight candles that broke structure')
-bool msb_sv         = input.bool(true, title='Plot market structure broke lines')
-bool box_sv         = input.bool(true, title='Plot demand boxes')
-int box_test_delay  = input.int(3, title='Delay to count test of demand box')
-int box_fill_delay  = input.int(3, title='Delay to count fill of demand box')
-bool box_test_sv    = input.bool(true, title='Dim tested demand boxes')
-bool box_stop_sv    = input.bool(true, title='Stop plotting filled demand boxes')
+string bos_type     = input.string("High and Low", title='MSB trigger', options=["High and Low", "Close and Open"], group='Bloques de orden')
+bool pv2_sv         = input.bool(false, title='Display 2nd order pivots', group='Bloques de orden')
+bool bos_sv         = input.bool(false, title='Highlight candles that broke structure', group='Bloques de orden')
+bool msb_sv         = input.bool(false, title='Plot market structure broke lines', group='Bloques de orden')
+bool box_sv         = input.bool(false, title='Plot demand boxes', group='Bloques de orden')
+int box_test_delay  = input.int(3, title='Delay to count test of demand box', group='Bloques de orden')
+int box_fill_delay  = input.int(3, title='Delay to count fill of demand box', group='Bloques de orden')
+bool box_test_sv    = input.bool(true, title='Dim tested demand boxes', group='Bloques de orden')
+bool box_stop_sv    = input.bool(true, title='Stop plotting filled demand boxes', group='Bloques de orden')
 
 var float[] pvh1_price = array.new_float(1000, na)
 var int[]   pvh1_time  = array.new_int(1000, na)
