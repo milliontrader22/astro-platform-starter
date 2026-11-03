@@ -45,34 +45,94 @@ cloud_bot = math.min(cloud_a, cloud_b)
 ema_touches_cloud = longEMA >= cloud_bot and longEMA <= cloud_top
 new_touch         = ema_touches_cloud and not ema_touches_cloud[1]
 
-// Se fija el precio y la dirección SOLO en el primer toque (no se re-escribe en cada vela)
-var float price_of_touch = na
-var bool  touch_bull     = na
-if new_touch
-    price_of_touch := close
-    touch_bull     := longEMA > longEMA[1]
+// ============================================================================
+// ENTRADAS LONG / SHORT
+// ============================================================================
+filter_trend = input.bool(true, title="Filtro: cierre a favor de la EMA (long: close > EMA, short: close < EMA)", group="Entradas")
+one_trade    = input.bool(true, title="Una operación a la vez (esperar TP o SL)", group="Entradas")
+show_levels  = input.bool(true, title="Dibujar líneas de Entrada / TP / SL", group="Entradas")
 
-pattern_direction = na(touch_bull) ? "" : touch_bull ? "Al alza" : "A la baja"
+ema_rising = longEMA > longEMA[1]
 
-// TP / SL según la dirección del patrón
-take_profit_price = na(price_of_touch) ? na : touch_bull ? price_of_touch * (1 + tp_pct / 100) : price_of_touch * (1 - tp_pct / 100)
-stop_loss_price   = na(price_of_touch) ? na : touch_bull ? price_of_touch * (1 - sl_pct / 100) : price_of_touch * (1 + sl_pct / 100)
+// Condiciones de entrada (se confirman al cierre de la vela para no repintar)
+long_cond  = new_touch and ema_rising     and (not filter_trend or close > longEMA)
+short_cond = new_touch and not ema_rising and (not filter_trend or close < longEMA)
 
-plotshape(new_touch and touch_bull,     title="Toque alcista", style=shape.triangleup,   location=location.belowbar, color=color.green, size=size.small)
-plotshape(new_touch and not touch_bull, title="Toque bajista", style=shape.triangledown, location=location.abovebar, color=color.red,   size=size.small)
+var int   pos         = 0      // 1 = long, -1 = short, 0 = sin posición
+var float entry_price = na
+var float tp_price    = na
+var float sl_price    = na
+var line  ln_entry    = na
+var line  ln_tp       = na
+var line  ln_sl       = na
+var int   wins        = 0
+var int   losses      = 0
 
-alertcondition(new_touch and touch_bull,     title="T-BOTS: toque alcista", message="T-BOTS PRO: la EMA tocó la nube (al alza)")
-alertcondition(new_touch and not touch_bull, title="T-BOTS: toque bajista", message="T-BOTS PRO: la EMA tocó la nube (a la baja)")
+close_levels() =>
+    line.set_x2(ln_entry, bar_index)
+    line.set_x2(ln_tp, bar_index)
+    line.set_x2(ln_sl, bar_index)
+    line.set_extend(ln_entry, extend.none)
+    line.set_extend(ln_tp, extend.none)
+    line.set_extend(ln_sl, extend.none)
+
+// --- Salidas (TP / SL). Si en la misma vela se tocan ambos, se cuenta SL (conservador) ---
+bool hit_tp = false
+bool hit_sl = false
+if pos == 1
+    hit_sl := low <= sl_price
+    hit_tp := not hit_sl and high >= tp_price
+else if pos == -1
+    hit_sl := high >= sl_price
+    hit_tp := not hit_sl and low <= tp_price
+
+if hit_tp or hit_sl
+    label.new(bar_index, hit_tp ? tp_price : sl_price, hit_tp ? "TP ✓" : "SL ✗", style=label.style_label_left, color=hit_tp ? color.green : color.red, textcolor=color.white, size=size.small)
+    close_levels()
+    wins   += hit_tp ? 1 : 0
+    losses += hit_sl ? 1 : 0
+    pos    := 0
+
+// --- Entradas ---
+can_enter    = not one_trade or pos == 0
+long_signal  = barstate.isconfirmed and long_cond  and can_enter and pos != 1
+short_signal = barstate.isconfirmed and short_cond and can_enter and pos != -1
+
+if long_signal or short_signal
+    if pos != 0                     // señal contraria con "una operación a la vez" desactivado
+        close_levels()
+    pos         := long_signal ? 1 : -1
+    entry_price := close
+    tp_price    := long_signal ? close * (1 + tp_pct / 100) : close * (1 - tp_pct / 100)
+    sl_price    := long_signal ? close * (1 - sl_pct / 100) : close * (1 + sl_pct / 100)
+    txt = (long_signal ? "LONG" : "SHORT") + "\nEntrada: " + str.tostring(entry_price, format.mintick) + "\nTP: " + str.tostring(tp_price, format.mintick) + "\nSL: " + str.tostring(sl_price, format.mintick)
+    label.new(bar_index, long_signal ? low : high, txt, yloc=long_signal ? yloc.belowbar : yloc.abovebar, style=long_signal ? label.style_label_up : label.style_label_down, color=long_signal ? color.green : color.red, textcolor=color.white, size=size.small)
+    if show_levels
+        ln_entry := line.new(bar_index, entry_price, bar_index + 1, entry_price, color=color.gray,  style=line.style_dashed, extend=extend.right)
+        ln_tp    := line.new(bar_index, tp_price,    bar_index + 1, tp_price,    color=color.green, style=line.style_dashed, extend=extend.right)
+        ln_sl    := line.new(bar_index, sl_price,    bar_index + 1, sl_price,    color=color.red,   style=line.style_dashed, extend=extend.right)
+    alert(txt, alert.freq_once_per_bar_close)
+
+// --- Alertas fijas (para crearlas desde el menú de alertas) ---
+alertcondition(long_signal,  title="T-BOTS: Entrada LONG",  message="T-BOTS PRO: entrada LONG en {{ticker}} a {{close}}")
+alertcondition(short_signal, title="T-BOTS: Entrada SHORT", message="T-BOTS PRO: entrada SHORT en {{ticker}} a {{close}}")
+alertcondition(hit_tp,       title="T-BOTS: Take-Profit",   message="T-BOTS PRO: take-profit alcanzado en {{ticker}}")
+alertcondition(hit_sl,       title="T-BOTS: Stop-Loss",     message="T-BOTS PRO: stop-loss alcanzado en {{ticker}}")
 
 // --- Tabla (se actualiza solo en la última barra) ---
-var table myTable = table.new(position.middle_left, 1, 6)
+var table myTable = table.new(position.middle_left, 1, 7)
 if barstate.islast
-    table.cell(myTable, 0, 0, ema_touches_cloud ? "¡Patrón Detectado!" : "Buscando Patrón...", text_color=color.white, bgcolor=ema_touches_cloud ? color.red : color.gray)
-    table.cell(myTable, 0, 1, ema_touches_cloud ? "EMA tocó Tbots Pro" : "Esperando el toque de la EMA", text_color=color.white, bgcolor=color.black)
-    table.cell(myTable, 0, 2, na(price_of_touch) ? "" : "Dirección: " + pattern_direction, text_color=color.white, bgcolor=color.black)
-    table.cell(myTable, 0, 3, na(price_of_touch) ? "" : "Precio de Toque: " + str.tostring(price_of_touch, format.mintick), text_color=color.white, bgcolor=color.black)
-    table.cell(myTable, 0, 4, na(price_of_touch) ? "" : "Precio de Take-Profit: " + str.tostring(take_profit_price, format.mintick), text_color=color.white, bgcolor=color.black)
-    table.cell(myTable, 0, 5, na(price_of_touch) ? "" : "Precio de Stop-Loss: " + str.tostring(stop_loss_price, format.mintick), text_color=color.white, bgcolor=color.black)
+    status_txt = pos == 1 ? "LONG activo" : pos == -1 ? "SHORT activo" : ema_touches_cloud ? "¡Patrón Detectado!" : "Buscando entrada..."
+    status_bg  = pos == 1 ? color.green : pos == -1 ? color.red : ema_touches_cloud ? color.orange : color.gray
+    has_trade  = not na(entry_price)
+    winrate    = wins + losses > 0 ? 100.0 * wins / (wins + losses) : na
+    table.cell(myTable, 0, 0, status_txt, text_color=color.white, bgcolor=status_bg)
+    table.cell(myTable, 0, 1, ema_touches_cloud ? "EMA tocando Tbots Pro" : "Esperando el toque de la EMA", text_color=color.white, bgcolor=color.black)
+    table.cell(myTable, 0, 2, has_trade ? (pos == 0 ? "Última: " : "Dirección: ") + (tp_price > entry_price ? "LONG" : "SHORT") : "", text_color=color.white, bgcolor=color.black)
+    table.cell(myTable, 0, 3, has_trade ? "Entrada: " + str.tostring(entry_price, format.mintick) : "", text_color=color.white, bgcolor=color.black)
+    table.cell(myTable, 0, 4, has_trade ? "Take-Profit: " + str.tostring(tp_price, format.mintick) : "", text_color=color.white, bgcolor=color.black)
+    table.cell(myTable, 0, 5, has_trade ? "Stop-Loss: " + str.tostring(sl_price, format.mintick) : "", text_color=color.white, bgcolor=color.black)
+    table.cell(myTable, 0, 6, "TP: " + str.tostring(wins) + " | SL: " + str.tostring(losses) + (na(winrate) ? "" : " | Acierto: " + str.tostring(winrate, "#.#") + "%"), text_color=color.white, bgcolor=color.black)
 
 // ============================================================================
 // BLOQUES DE ORDEN - ORDER BLOCKS
