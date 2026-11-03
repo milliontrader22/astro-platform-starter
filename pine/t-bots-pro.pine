@@ -1,0 +1,243 @@
+//@version=5
+indicator("T-BOTS PRO", overlay=true, max_bars_back=5000, max_boxes_count=500, max_lines_count=500, max_labels_count=500)
+
+// ============================================================================
+// ICHIMOKU + EMA
+// ============================================================================
+tenkan_length        = input.int(9,  title="Longitud Tenkan-sen")
+kijun_length         = input.int(26, title="Longitud Kijun-sen")
+senkou_span_b_length = input.int(52, title="Longitud Senkou Span B")
+displacement         = input.int(26, title="Desplazamiento (nube / Chikou)")
+longEMA_length       = input.int(26, title="Longitud EMA Larga")
+tp_pct               = input.float(2.0, title="Take-Profit (%)", minval=0.1, step=0.1)
+sl_pct               = input.float(2.0, title="Stop-Loss (%)",   minval=0.1, step=0.1)
+
+donchian(len) => (ta.highest(high, len) + ta.lowest(low, len)) / 2
+
+tenkan_sen    = donchian(tenkan_length)
+kijun_sen     = donchian(kijun_length)
+senkou_span_a = (tenkan_sen + kijun_sen) / 2          // Span A estándar
+senkou_span_b = donchian(senkou_span_b_length)
+
+// Igual que el Ichimoku de TradingView: la nube se desplaza (displacement - 1) barras
+cloud_offset = displacement - 1
+
+longEMA = ta.ema(close, longEMA_length)
+
+// --- Ploteos ---
+plot(longEMA,    title="EMA Larga",  color=color.orange, linewidth=3)
+plot(tenkan_sen, title="Tenkan-sen", color=color.blue,   linewidth=1)
+plot(kijun_sen,  title="Kijun-sen",  color=color.red,    linewidth=1)
+plot(close,      title="Chikou Span", color=color.new(color.purple, 30), linewidth=1, offset=-cloud_offset)
+p_span_a = plot(senkou_span_a, title="Senkou Span A", color=color.green,  linewidth=1, offset=cloud_offset)
+p_span_b = plot(senkou_span_b, title="Senkou Span B", color=color.maroon, linewidth=1, offset=cloud_offset)
+
+// Nube: verde = alcista (A > B), roja = bajista
+fill(p_span_a, p_span_b, color=senkou_span_a > senkou_span_b ? color.new(color.green, 80) : color.new(color.red, 80), title="Nube Ichimoku")
+
+// --- Detección del toque ---
+// La nube que se ve en la barra actual es la calculada hace 'cloud_offset' barras
+cloud_a   = senkou_span_a[cloud_offset]
+cloud_b   = senkou_span_b[cloud_offset]
+cloud_top = math.max(cloud_a, cloud_b)
+cloud_bot = math.min(cloud_a, cloud_b)
+
+ema_touches_cloud = longEMA >= cloud_bot and longEMA <= cloud_top
+new_touch         = ema_touches_cloud and not ema_touches_cloud[1]
+
+// Se fija el precio y la dirección SOLO en el primer toque (no se re-escribe en cada vela)
+var float price_of_touch = na
+var bool  touch_bull     = na
+if new_touch
+    price_of_touch := close
+    touch_bull     := longEMA > longEMA[1]
+
+pattern_direction = na(touch_bull) ? "" : touch_bull ? "Al alza" : "A la baja"
+
+// TP / SL según la dirección del patrón
+take_profit_price = na(price_of_touch) ? na : touch_bull ? price_of_touch * (1 + tp_pct / 100) : price_of_touch * (1 - tp_pct / 100)
+stop_loss_price   = na(price_of_touch) ? na : touch_bull ? price_of_touch * (1 - sl_pct / 100) : price_of_touch * (1 + sl_pct / 100)
+
+plotshape(new_touch and touch_bull,     title="Toque alcista", style=shape.triangleup,   location=location.belowbar, color=color.green, size=size.small)
+plotshape(new_touch and not touch_bull, title="Toque bajista", style=shape.triangledown, location=location.abovebar, color=color.red,   size=size.small)
+
+alertcondition(new_touch and touch_bull,     title="T-BOTS: toque alcista", message="T-BOTS PRO: la EMA tocó la nube (al alza)")
+alertcondition(new_touch and not touch_bull, title="T-BOTS: toque bajista", message="T-BOTS PRO: la EMA tocó la nube (a la baja)")
+
+// --- Tabla (se actualiza solo en la última barra) ---
+var table myTable = table.new(position.middle_left, 1, 6)
+if barstate.islast
+    table.cell(myTable, 0, 0, ema_touches_cloud ? "¡Patrón Detectado!" : "Buscando Patrón...", text_color=color.white, bgcolor=ema_touches_cloud ? color.red : color.gray)
+    table.cell(myTable, 0, 1, ema_touches_cloud ? "EMA tocó Tbots Pro" : "Esperando el toque de la EMA", text_color=color.white, bgcolor=color.black)
+    table.cell(myTable, 0, 2, na(price_of_touch) ? "" : "Dirección: " + pattern_direction, text_color=color.white, bgcolor=color.black)
+    table.cell(myTable, 0, 3, na(price_of_touch) ? "" : "Precio de Toque: " + str.tostring(price_of_touch, format.mintick), text_color=color.white, bgcolor=color.black)
+    table.cell(myTable, 0, 4, na(price_of_touch) ? "" : "Precio de Take-Profit: " + str.tostring(take_profit_price, format.mintick), text_color=color.white, bgcolor=color.black)
+    table.cell(myTable, 0, 5, na(price_of_touch) ? "" : "Precio de Stop-Loss: " + str.tostring(stop_loss_price, format.mintick), text_color=color.white, bgcolor=color.black)
+
+// ============================================================================
+// BLOQUES DE ORDEN - ORDER BLOCKS
+// ============================================================================
+string bos_type     = input.string("High and Low", title='MSB trigger', options=["High and Low", "Close and Open"])
+bool pv2_sv         = input.bool(true, title='Display 2nd order pivots')
+bool bos_sv         = input.bool(true, title='Highlight candles that broke structure')
+bool msb_sv         = input.bool(true, title='Plot market structure broke lines')
+bool box_sv         = input.bool(true, title='Plot demand boxes')
+int box_test_delay  = input.int(3, title='Delay to count test of demand box')
+int box_fill_delay  = input.int(3, title='Delay to count fill of demand box')
+bool box_test_sv    = input.bool(true, title='Dim tested demand boxes')
+bool box_stop_sv    = input.bool(true, title='Stop plotting filled demand boxes')
+
+var float[] pvh1_price = array.new_float(1000, na)
+var int[]   pvh1_time  = array.new_int(1000, na)
+var float[] pvl1_price = array.new_float(1000, na)
+var int[]   pvl1_time  = array.new_int(1000, na)
+
+var float[] pvh2_price = array.new_float(1000, na)
+var int[]   pvh2_time  = array.new_int(1000, na)
+var float[] pvl2_price = array.new_float(1000, na)
+var int[]   pvl2_time  = array.new_int(1000, na)
+
+var float htcmrll_price = na
+var int   htcmrll_time  = na
+var float ltcmrhh_price = na
+var int   ltcmrhh_time  = na
+
+var box[] long_boxes     = array.new_box()
+var box[] short_boxes    = array.new_box()
+var box[] oldlong_boxes  = array.new_box()
+var box[] oldshort_boxes = array.new_box()
+
+var line[] bull_bos_lines = array.new_line()
+var line[] bear_bos_lines = array.new_line()
+
+var float temp_pv_0 = na
+var float temp_pv_1 = na
+var float temp_pv_2 = na
+
+bool pvh = high < high[1] and high[1] > high[2]
+bool pvl = low > low[1] and low[1] < low[2]
+
+int   pv1_time     = bar_index[1]
+float pv1_high     = high[1]
+float pv1_low      = low[1]
+float trigger_high = bos_type == "High and Low" ? high : math.max(open, close)
+float trigger_low  = bos_type == "High and Low" ? low  : math.min(open, close)
+
+bool bos_candle = false
+bool new_ph_2nd = false
+bool new_pl_2nd = false
+
+// Evita que los arrays de referencias crezcan sin límite
+trim_boxes(box[] arr) =>
+    while array.size(arr) > 500
+        array.pop(arr)
+trim_lines(line[] arr) =>
+    while array.size(arr) > 500
+        array.shift(arr)
+
+if barstate.isconfirmed
+    if pvh
+        array.pop(pvh1_price)
+        array.pop(pvh1_time)
+        array.unshift(pvh1_price, pv1_high)
+        array.unshift(pvh1_time, pv1_time)
+        temp_pv_0 := array.get(pvh1_price, 0)
+        temp_pv_1 := array.get(pvh1_price, 1)
+        temp_pv_2 := array.get(pvh1_price, 2)
+        if temp_pv_0 > temp_pv_1
+            for i = 0 to array.size(pvl1_time) - 1
+                temp_ltcmrhh_time = array.get(pvl1_time, i)
+                if temp_ltcmrhh_time < array.get(pvh1_time, 0)
+                    ltcmrhh_price := array.get(pvl1_price, i)
+                    ltcmrhh_time  := temp_ltcmrhh_time
+                    break
+        if temp_pv_0 < temp_pv_1 and temp_pv_1 > temp_pv_2
+            array.pop(pvh2_price)
+            array.pop(pvh2_time)
+            array.unshift(pvh2_price, temp_pv_1)
+            array.unshift(pvh2_time, array.get(pvh1_time, 1))
+            new_ph_2nd := true
+
+    if pvl
+        array.pop(pvl1_price)
+        array.pop(pvl1_time)
+        array.unshift(pvl1_price, pv1_low)
+        array.unshift(pvl1_time, pv1_time)
+        temp_pv_0 := array.get(pvl1_price, 0)
+        temp_pv_1 := array.get(pvl1_price, 1)
+        temp_pv_2 := array.get(pvl1_price, 2)
+        if temp_pv_0 < temp_pv_1
+            for i = 0 to array.size(pvh1_time) - 1
+                temp_htcmrll_time = array.get(pvh1_time, i)
+                if temp_htcmrll_time < array.get(pvl1_time, 0)
+                    htcmrll_price := array.get(pvh1_price, i)
+                    htcmrll_time  := temp_htcmrll_time
+                    break
+        if temp_pv_0 > temp_pv_1 and temp_pv_1 < temp_pv_2
+            array.pop(pvl2_price)
+            array.pop(pvl2_time)
+            array.unshift(pvl2_price, temp_pv_1)
+            array.unshift(pvl2_time, array.get(pvl1_time, 1))
+            new_pl_2nd := true
+
+    // Pivotes de 2º orden (antes el input existía pero no se dibujaba nada)
+    if pv2_sv and new_ph_2nd
+        label.new(array.get(pvh2_time, 0), array.get(pvh2_price, 0), "PH2", style=label.style_label_down, color=color.new(color.red, 60), textcolor=color.white, size=size.tiny)
+    if pv2_sv and new_pl_2nd
+        label.new(array.get(pvl2_time, 0), array.get(pvl2_price, 0), "PL2", style=label.style_label_up, color=color.new(color.green, 60), textcolor=color.white, size=size.tiny)
+
+    // Ruptura alcista de estructura -> zona de demanda
+    if trigger_high > htcmrll_price
+        if msb_sv
+            array.push(bull_bos_lines, line.new(x1=htcmrll_time, y1=htcmrll_price, x2=bar_index, y2=htcmrll_price, color=color.green, width=2))
+        if box_sv and not na(array.get(pvl1_time, 0))
+            int ob_l = bar_index - array.get(pvl1_time, 0)
+            array.push(long_boxes, box.new(left=array.get(pvl1_time, 0), top=math.min(high[ob_l], high[ob_l + 1]), right=bar_index, bottom=array.get(pvl1_price, 0), bgcolor=color.rgb(0, 255, 0, 80), border_color=color.rgb(0, 255, 0, 80), extend=extend.right))
+        bos_candle    := true
+        htcmrll_price := na
+
+    // Ruptura bajista de estructura -> zona de oferta
+    if trigger_low < ltcmrhh_price
+        if msb_sv
+            array.push(bear_bos_lines, line.new(x1=ltcmrhh_time, y1=ltcmrhh_price, x2=bar_index, y2=ltcmrhh_price, color=color.red, width=2))
+        if box_sv and not na(array.get(pvh1_time, 0))
+            int ob_h = bar_index - array.get(pvh1_time, 0)
+            array.push(short_boxes, box.new(left=array.get(pvh1_time, 0), top=array.get(pvh1_price, 0), right=bar_index, bottom=math.max(low[ob_h], low[ob_h + 1]), bgcolor=color.rgb(255, 0, 0, 80), border_color=color.rgb(255, 0, 0, 80), extend=extend.right))
+        bos_candle    := true
+        ltcmrhh_price := na
+
+    if array.size(short_boxes) > 0
+        for i = array.size(short_boxes) - 1 to 0
+            tbox   = array.get(short_boxes, i)
+            top    = box.get_top(tbox)
+            bottom = box.get_bottom(tbox)
+            if trigger_high > bottom and box.get_left(tbox) + box_test_delay < bar_index and box_test_sv
+                box.set_bgcolor(tbox, color.rgb(192, 192, 192, 80))
+                box.set_border_color(tbox, color.rgb(192, 192, 192, 80))
+            if trigger_high > top and box.get_left(tbox) + box_fill_delay < bar_index and box_stop_sv
+                box.set_right(tbox, bar_index)
+                box.set_extend(tbox, extend.none)
+                array.unshift(oldshort_boxes, tbox)
+                array.remove(short_boxes, i)
+
+    if array.size(long_boxes) > 0
+        for i = array.size(long_boxes) - 1 to 0
+            lbox   = array.get(long_boxes, i)
+            top    = box.get_top(lbox)
+            bottom = box.get_bottom(lbox)
+            if trigger_low < top and box.get_left(lbox) + box_test_delay < bar_index and box_test_sv
+                box.set_bgcolor(lbox, color.rgb(192, 192, 192, 80))
+                box.set_border_color(lbox, color.rgb(192, 192, 192, 80))
+            if trigger_low < bottom and box.get_left(lbox) + box_fill_delay < bar_index and box_stop_sv
+                box.set_right(lbox, bar_index)
+                box.set_extend(lbox, extend.none)
+                array.unshift(oldlong_boxes, lbox)
+                array.remove(long_boxes, i)
+
+    trim_boxes(oldshort_boxes)
+    trim_boxes(oldlong_boxes)
+    trim_lines(bull_bos_lines)
+    trim_lines(bear_bos_lines)
+
+// Velas que rompieron estructura (antes el input existía pero no hacía nada)
+barcolor(bos_sv and bos_candle ? color.yellow : na, title="Vela de ruptura (BOS)")
