@@ -1,5 +1,5 @@
 //@version=5
-indicator("T-BOTS PRO", overlay=true, max_bars_back=5000, max_boxes_count=500, max_lines_count=500, max_labels_count=500)
+indicator("MARKET MAKER INDICADOR", overlay=true, max_bars_back=5000, max_boxes_count=500, max_lines_count=500, max_labels_count=500)
 
 // ============================================================================
 // ICHIMOKU + EMA
@@ -124,10 +124,10 @@ if long_signal or short_signal
     alert(txt, alert.freq_once_per_bar_close)
 
 // --- Alertas fijas (para crearlas desde el menú de alertas) ---
-alertcondition(long_signal,  title="T-BOTS: Entrada LONG",  message="T-BOTS PRO: entrada LONG en {{ticker}} a {{close}}")
-alertcondition(short_signal, title="T-BOTS: Entrada SHORT", message="T-BOTS PRO: entrada SHORT en {{ticker}} a {{close}}")
-alertcondition(hit_tp,       title="T-BOTS: Take-Profit",   message="T-BOTS PRO: take-profit alcanzado en {{ticker}}")
-alertcondition(hit_sl,       title="T-BOTS: Stop-Loss",     message="T-BOTS PRO: stop-loss alcanzado en {{ticker}}")
+alertcondition(long_signal,  title="MARKET MAKER: Entrada LONG",  message="MARKET MAKER INDICADOR: entrada LONG en {{ticker}} a {{close}}")
+alertcondition(short_signal, title="MARKET MAKER: Entrada SHORT", message="MARKET MAKER INDICADOR: entrada SHORT en {{ticker}} a {{close}}")
+alertcondition(hit_tp,       title="MARKET MAKER: Take-Profit",   message="MARKET MAKER INDICADOR: take-profit alcanzado en {{ticker}}")
+alertcondition(hit_sl,       title="MARKET MAKER: Stop-Loss",     message="MARKET MAKER INDICADOR: stop-loss alcanzado en {{ticker}}")
 
 // --- Tabla (se actualiza solo en la última barra) ---
 var table myTable = table.new(position.middle_left, 1, 7)
@@ -137,7 +137,7 @@ if barstate.islast
     has_trade  = not na(entry_price)
     winrate    = wins + losses > 0 ? 100.0 * wins / (wins + losses) : na
     table.cell(myTable, 0, 0, status_txt, text_color=color.white, bgcolor=status_bg)
-    table.cell(myTable, 0, 1, ema_touches_cloud ? "EMA tocando Tbots Pro" : "Esperando el toque de la EMA", text_color=color.white, bgcolor=color.black)
+    table.cell(myTable, 0, 1, ema_touches_cloud ? "EMA tocando la nube" : "Esperando el toque de la EMA", text_color=color.white, bgcolor=color.black)
     table.cell(myTable, 0, 2, has_trade ? (pos == 0 ? "Última: " : "Dirección: ") + (tp_price > entry_price ? "LONG" : "SHORT") : "", text_color=color.white, bgcolor=color.black)
     table.cell(myTable, 0, 3, has_trade ? "Entrada: " + str.tostring(entry_price, format.mintick) : "", text_color=color.white, bgcolor=color.black)
     table.cell(myTable, 0, 4, has_trade ? "Take-Profit: " + str.tostring(tp_price, format.mintick) : "", text_color=color.white, bgcolor=color.black)
@@ -148,7 +148,6 @@ if barstate.islast
 // BLOQUES DE ORDEN - ORDER BLOCKS
 // ============================================================================
 string bos_type     = input.string("High and Low", title='MSB trigger', options=["High and Low", "Close and Open"])
-bool pv2_sv         = input.bool(true, title='Display 2nd order pivots')
 bool bos_sv         = input.bool(true, title='Highlight candles that broke structure')
 bool msb_sv         = input.bool(true, title='Plot market structure broke lines')
 bool box_sv         = input.bool(true, title='Plot demand boxes')
@@ -249,12 +248,6 @@ if barstate.isconfirmed
             array.unshift(pvl2_price, temp_pv_1)
             array.unshift(pvl2_time, array.get(pvl1_time, 1))
             new_pl_2nd := true
-
-    // Pivotes de 2º orden (antes el input existía pero no se dibujaba nada)
-    if pv2_sv and new_ph_2nd
-        label.new(array.get(pvh2_time, 0), array.get(pvh2_price, 0), "PH2", style=label.style_label_down, color=color.new(color.red, 60), textcolor=color.white, size=size.tiny)
-    if pv2_sv and new_pl_2nd
-        label.new(array.get(pvl2_time, 0), array.get(pvl2_price, 0), "PL2", style=label.style_label_up, color=color.new(color.green, 60), textcolor=color.white, size=size.tiny)
 
     // Ruptura alcista de estructura -> zona de demanda
     if trigger_high > htcmrll_price
